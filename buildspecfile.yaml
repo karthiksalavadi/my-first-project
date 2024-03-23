@@ -1,0 +1,40 @@
+version: 0.2
+phases:
+  install:
+    commands:
+      - nohup /usr/local/bin/dockerd --host=unix:///var/run/docker.sock --host=tcp://127.0.0.1:2375 --storage-driver=overlay2&
+      - timeout 15 sh -c "until docker info; do echo .; sleep 1; done"
+  pre_build:
+    commands:
+      - echo Logging in to Amazon ECR...
+      - $(aws ecr get-login --region us-east-2 --no-include-email)
+      - REPOSITORY_URI=058264315726.dkr.ecr.us-east-1.amazonaws.com/myfirst-webapp
+      - COMMIT_HASH=$(echo $CODEBUILD_RESOLVED_SOURCE_VERSION | cut -c 1-7)
+      - IMAGE_TAG=${COMMIT_HASH:=latest}
+      - CLUSTER=stage
+      - DEPLOYMENT=myfirst-webapp
+      - DEPLOYMENT_NS=my-webapp
+      - CONFIG_MAP=myfirst-webapp
+      - ZONE_REGION=us-east-1
+      - DEPLOYMENT_MANIFEST_NAME=deployment.yaml
+
+  build:
+    commands:
+      - echo Build started on `date`
+      - echo Building the GMS Docker image...
+      - env > .env
+      - docker build -f /mnt/c/Users/Windows/Desktop/my-first-project/Dockerfile -t $REPOSITORY_URI:latest .
+      - docker tag $REPOSITORY_URI:latest $REPOSITORY_URI:$IMAGE_TAG
+  post_build:
+    commands:
+      - echo Build completed on `date`
+      - echo Pushing the promotions-api image...
+      - docker push $REPOSITORY_URI:latest
+      - docker push $REPOSITORY_URI:$IMAGE_TAG
+      - echo Writing image definitions file...
+      - printf '{"cluster":"%s", "imageUri":"%s", "deployment":"%s", "deploymentNS":"%s", "celeryUri":"%s", "configMap":"%s", "zoneRegion":"%s", "deploymentManifestName":"%s"}' $CLUSTER $REPOSITORY_URI:$IMAGE_TAG $DEPLOYMENT $DEPLOYMENT_NS $CELERY_REPOSITORY_URI:$IMAGE_TAG $CONFIG_MAP $ZONE_REGION $DEPLOYMENT_MANIFEST_NAME > image-definitions.json
+artifacts:
+  files:
+    - image-definitions.json
+    - deploy/deployment.yaml
+
